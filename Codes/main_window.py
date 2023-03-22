@@ -2,14 +2,18 @@ from PyQt5 import uic
 import PySpin
 from PyQt5.QtGui import QImage, QPixmap
 import os
-from PyQt5.QtCore import QTimer,QThread
-from PyQt5.QtWidgets import QFileDialog, QMessageBox, QWidget, QApplication
-from tools import config_model_dir
+from PyQt5.QtCore import QTimer,QThread,Qt,pyqtSignal
+from PyQt5.QtWidgets import QFileDialog, QMessageBox
+from tools import config_model_dir,nearest_odd,get_pic_size_in_dir,get_first_image_format,judge_format
 import cv2
 from lens import Lens
+from PyQt5.QtWidgets import QApplication, QWidget, QPushButton, QDialog, QLineEdit, QVBoxLayout
 import time
+import fusion
+
 os.environ["KMP_DUPLICATE_LIB_OK"] = "TRUE"
-flag_save_number = 1  # flag定义全局变量 图片保存的序号默认从1开始
+# flag定义全局变量 图片保存的序号默认从1开始
+flag_save_number = 1
 
 class MyWindow(QWidget):
     def __init__(self):
@@ -64,6 +68,7 @@ class MyWindow(QWidget):
         self.btn_save_pictures.clicked.connect(self.start_save_picture)
         self.btn_stop_save_pictures = self.ui.btn_stop_save
         self.btn_stop_save_pictures.clicked.connect(self.stop_save_picture)
+
         #用于保存图像的flag,默认情况不保存
         self.need_save_fig=False
 
@@ -87,6 +92,35 @@ class MyWindow(QWidget):
         self.btn_begin_cycle=self.ui.btn_cycle_diopter
         self.btn_begin_cycle.clicked.connect(self.begin_cycle)
 
+        #屈光度循环关闭按钮
+        self.btn_stop_cycle=self.ui.btn_stop_cycle_diopter
+        self.btn_stop_cycle.clicked.connect(self.stop_cycle)
+
+        #用于选择融合图像栈的路径
+        self.btn_fusion_stack=self.ui.btn_select_fusion_path
+        self.btn_fusion_stack.clicked.connect(self.set_fusion_path)
+
+        #用于选择融合图像输出的路径
+        self.btn_fusion_stack_output = self.ui.btn_select_output_path
+        self.btn_fusion_stack_output.clicked.connect(self.set_fusion_output_path)
+
+        # 用于选择model路径
+        self.btn_select_model_path=self.ui.btn_select_model_path
+        self.btn_select_model_path.clicked.connect(self.set_model_path)
+
+        #用于开始融合按钮
+        self.btn_start_fusion=self.ui.btn_start_fusion
+        self.btn_start_fusion.clicked.connect(self.start_fusion)
+
+        #用于绑定路径并且监听3个编辑框的内容是否发生了改变
+        self.fusion_path_edit=self.ui.fusion_path_edit
+        self.out_put_path_edit=self.ui.out_put_path_edit
+        self.model_path_edit=self.ui.model_path_edit
+
+        #监听三个path edit,按下回车键或者失去焦点时触发，检查并更新
+        self.fusion_path_edit.editingFinished.connect(self.update_source_path)
+        self.out_put_path_edit.editingFinished.connect(self.update_target_path)
+        self.model_path_edit.editingFinished.connect(self.update_model_path)
 
 
     #用于初始化相机并且开启定时器捕获图像
@@ -138,6 +172,7 @@ class MyWindow(QWidget):
 
         self.btn_save_pictures.setEnabled(True)
         self.btn_stop_save_pictures.setEnabled(True)
+
     #用于关闭相机
     def stop_capture(self):
         lb_video_inf = self.ui.video_inf
@@ -287,6 +322,7 @@ class MyWindow(QWidget):
     # 用于重置透镜屈光度
     def reset_diopter(self):
         self.lens.set_diopter(0)
+        self.ui.lb_diop_show.setText('0')
 
     # 用于屈光度变化循环
     def begin_cycle(self):
@@ -303,6 +339,8 @@ class MyWindow(QWidget):
 
         #判断输入是否正确
         if max_cycle < max_diop and min_cycle > min_diop:
+            #flag表示需要进行循环
+            self.cycle_flag = True
             self.ui.lb_show_zoom.setText('Zooming')
             # 判断是否同时需要保存图像
             save_check = self.ui.btn_save_pic_zoom.isChecked()  # bool
@@ -322,12 +360,17 @@ class MyWindow(QWidget):
                 real_diop = max_cycle
 
                 for i in range(int(times)):
+                    if self.cycle_flag==False:
+                        # 停止保存图像
+                        self.img_save_timer.stop()
+                        break
                     self.lens.set_diopter(real_diop)
                     real_diop-=step
                     time.sleep(every_time/1000)#time.sleep(s)
                     # 获取当前屈光度并显示
                     now_diop=self.lens.get_diopter()#获取屈光度
                     self.ui.lb_diop_show_2.setText(str(now_diop))
+                    #防卡
                     QApplication.processEvents()
                 #停止保存图像
                 self.img_save_timer.stop()
@@ -336,6 +379,10 @@ class MyWindow(QWidget):
                 # 先从最大开始拍到最小
                 real_diop = max_cycle
                 for i in range(int(times)):
+                    if self.cycle_flag==False:
+                        # 停止保存图像
+                        self.img_save_timer.stop()
+                        break
                     self.lens.set_diopter(real_diop)
                     real_diop-=step
                     time.sleep(every_time/1000)#time.sleep(s)
@@ -344,9 +391,13 @@ class MyWindow(QWidget):
                     self.ui.lb_diop_show_2.setText(str(now_diop))
                     QApplication.processEvents()
 
-                # 再从最小开始拍到最大
-                real_diop = min_cycle
+                # 再从最小开始拍到最大,这里不重复拍所以先加上step
+                real_diop = min_cycle+step
                 for i in range(int(times)):
+                    if self.cycle_flag==False:
+                        # 停止保存图像
+                        self.img_save_timer.stop()
+                        break
                     self.lens.set_diopter(real_diop)
                     real_diop+=step
                     time.sleep(every_time/1000)#time.sleep(s)
@@ -360,20 +411,228 @@ class MyWindow(QWidget):
         else:
             QMessageBox.information(self, 'Notice',u'Please enter the correct diopter!Diopter value should be between {} and {}'.format(min_diop,max_diop))
 
+    # 用于停止屈光度变化循环
+    def stop_cycle(self):
+        self.cycle_flag=False
 
+    #用于设置融合图像栈路径
+    def set_fusion_path(self):
+        path = QFileDialog.getExistingDirectory(self, "Choose stack path")
+        flag_have_pic = False
+        if os.path.isdir(path):  # 检查path是否为一个存在的文件夹
+            #检查是否包含图片
+            image_formats = [".jpg", ".png", ".bmp"]  # 定义常见的图片格式
+            files = os.listdir(path)  # 获取文件夹中的所有文件名
+            for file in files:  # 遍历每个文件名
+                for format in image_formats:  # 遍历每种图片格式
+                    if file.endswith(format):  # 如果文件名以图片格式结尾
+                        flag_have_pic=True
+                        break  # 跳出内层循环，继续下一个文件名
+            if flag_have_pic==False:
+                QMessageBox.information(self, 'Notice',
+                                        u'No pictures in this folder')
+            else:
+                self.fusion_dir_path = path
+                self.ui.fusion_path_edit.setText(path)
+        else:
+            QMessageBox.information(self, 'Notice',
+                                    u'Not a directory')
+
+    #用于设置融合图像输出的文件夹
+    def set_fusion_output_path(self):
+        path = QFileDialog.getExistingDirectory(self, "Choose output path")
+        if os.path.isdir(path):  # 检查path是否为一个存在的文件夹
+            self.fusion_output_path=path
+            self.ui.out_put_path_edit.setText(path)
+        else:
+            QMessageBox.information(self, 'Notice',
+                                    u'Not a directory')
+
+    #用于设置模型文件路径
+    def set_model_path(self):
+        path = QFileDialog.getOpenFileName(self, "Select model")
+        if os.path.isdir(path[0]):  # 检查path是否为一个存在的文件夹
+            QMessageBox.information(self, 'Notice',
+                                    u'Please do not select the folder, select the model file')
+        else:
+            self.model_path = path[0]
+            print(self.model_path)
+            self.ui.model_path_edit.setText(path[0])
+
+    #用于edit更新输入图像栈路径
+    def update_source_path(self):
+        path_fusion_dir_path=self.ui.fusion_path_edit.text()
+        #检查输入图像栈文件夹是否正确且包含的全是图片
+        flag_have_pic = False
+        if os.path.isdir(path_fusion_dir_path):  # 检查path是否为一个存在的文件夹
+            # 检查是否包含图片
+            image_formats = [".jpg", ".png", ".bmp"]  # 定义常见的图片格式
+            files = os.listdir(path_fusion_dir_path)  # 获取文件夹中的所有文件名
+            for file in files:  # 遍历每个文件名
+                for format in image_formats:  # 遍历每种图片格式
+                    if file.endswith(format):  # 如果文件名以图片格式结尾
+                        flag_have_pic = True
+                        break  # 跳出内层循环，继续下一个文件名
+            if flag_have_pic == False:
+                QMessageBox.information(self, 'Notice',
+                                        u'No pictures in this folder')
+            else:
+                self.fusion_dir_path = path_fusion_dir_path
+
+        else:
+            QMessageBox.information(self, 'Notice',
+                                    u'Not a directory')
+    #用于edit更新输入图像栈路径
+    def update_target_path(self):
+        # 检查输出路径是否是一个文件夹
+        path_out_dir_path = self.ui.out_put_path_edit.text()
+        if os.path.isdir(path_out_dir_path):  # 检查path是否为一个存在的文件夹
+            self.fusion_output_path=path_out_dir_path
+        else:
+            QMessageBox.information(self, 'Notice',
+                                    u'Not a directory')
+
+    # 用于edit更新模型栈路径
+    def update_model_path(self):
+        #检查模型路径是否正确
+        model_path=self.ui.model_path_edit.text()
+        if judge_format(model_path):
+            self.model_path = model_path
+        else:
+            QMessageBox.information(self, 'Notice',
+                                    u'Not a correct model!')
+
+    #用于融合图像栈
+    def start_fusion(self):
+        #定义确认参数
+        CONFIRM=True
+
+        # 进度条置0！表示重新开始融合
+        self.ui.fusion_progress.setValue(0)
+
+        #判断必须要的参数是否设置完全
+        if not os.path.isdir(self.fusion_dir_path):
+            QMessageBox.information(self, 'Notice',
+                                    u'Please make sure the path of the image stack folder to be fused is correct')
+            CONFIRM=False
+        if not os.path.isdir(self.fusion_output_path):
+            CONFIRM=False
+            QMessageBox.information(self, 'Notice',
+                                    u'Please make sure that the output path of the fused image is correct')
+        if not (self.model_path.endswith(".ckpt") or self.model_path.endswith(".pth")or self.model_path.endswith(".pt")):
+            CONFIRM=False
+            QMessageBox.information(self, 'Notice',
+                                    u'Please check if the model file is correct')
+        #如果必须要的参数都输入了，继续执行
+        if CONFIRM==True:
+            #确认参数
+            img_stack_path=self.fusion_dir_path
+            output_path=self.fusion_output_path
+            model_path=self.model_path
+
+            #确认输出图像的宽高，如果没有手动输入输出图像的宽高，自动获取，如果手动输入输出图片的宽高，使用手动输入的值
+            if self.ui.output_width.text()=='':
+                width=get_pic_size_in_dir(img_stack_path)[0]
+                height=get_pic_size_in_dir(img_stack_path)[1]
+            else:
+                width=int(self.ui.output_width.text())
+                height=int(self.ui.output_height.text())
+
+            #确认k_size，如果有手动设置的k_size,使用手动设置的k_size，没有则使用自动的1/20 min(width,height)
+            if self.ui.edit_kernel.text()!='':
+                k_size=int(self.ui.edit_kernel.text())
+            else:
+                k_size=min(height,width)//20 if (min(height,width)//20)%2!=0 else (min(height,width)//20)+1
+
+            #确认是否使用后处理
+            use_post_process=self.ui.btn_post_process.isChecked()
+            if use_post_process==True:
+                #确认是否使用模糊优化
+                use_fuzzy=self.ui.btn_fuzzy.isChecked()
+            else:
+                use_fuzzy=False
+
+            #确认输入图片的类型,这是是'.xxx'
+            source_format=get_first_image_format(img_stack_path)
+
+            #确认输出图片的类型,这是是'xxx'
+            target_format=self.ui.comboBox_output_format.currentText()
+
+            #确认是否去噪
+            remove_noise=self.ui.btn_remove_noise.isChecked()
+
+            # 进度条置为10,表示数据检查完成开始融合！
+            self.ui.fusion_progress.setValue(10)
+
+            #在子进程里面开始融合，融合成功会返回路径地址
+            self.fusion_thread = FusionThread(img_stack_path=img_stack_path,output_path=output_path,
+                                model_path=model_path,k_size=k_size,use_post_process=use_post_process,
+                                use_fuzzy=use_fuzzy,width=width,height=height,source_format=source_format,
+                                target_format=target_format,remove_noise=remove_noise)
+            save_path=self.fusion_thread.path
+            #进度条显示100%
+            self.ui.fusion_progress.setValue(100)
+        else:
+            QMessageBox.information(self, 'Notice',
+                                    u'Please check if the input and output are correct')
+        QMessageBox.information(self, 'Notice',
+                                u'Fusion done,img is save in {}'.format(save_path))
 
 #子线程用来保存图片，不影响主线程显示
 class Save_img(QThread):
-    # 定义一个信号，用于通知主线程任务完成
     def __init__(self,data,path,save_format):
-        self.image=data
-        self.save_path=path
+        self.data=data
+        self.path=path
         self.save_format='.'+save_format
         self.save()
     # 重写run方法
     def save(self):
         global flag_save_number#定义在文件头
-        cv2.imwrite(os.path.join(self.save_path,str(flag_save_number)+ self.save_format), self.image)
-        print('img{}.jpg has been saved in {}'.format(flag_save_number,self.save_path + '/'+str(flag_save_number)+'.jpg'))
+        cv2.imwrite(os.path.join(self.path,str(flag_save_number)+ self.save_format), self.data)
+        print('img{}.jpg has been saved in {}'.format(flag_save_number,self.path + '/'+str(flag_save_number)+'.jpg'))
         flag_save_number += 1#增量式创建，图片按先后排序
+
+#子对话框用于询问手动设置的k_size
+class Ask_k_size_Dialog(QDialog):
+    def __init__(self):
+        super().__init__()
+        self.setWindowTitle("Set kernel")
+        self.setWindowFlags(Qt.WindowSystemMenuHint | Qt.WindowTitleHint)  # 设置对话框的窗口标志
+        self.edit = QLineEdit() # 创建编辑框
+        self.button = QPushButton("OK") # 创建按钮
+        self.button.clicked.connect(self.accept) # 连接按钮的点击信号和对话框的接受槽函数
+        layout = QVBoxLayout() # 创建垂直布局
+        layout.addWidget(self.edit) # 添加编辑框到布局中
+        layout.addWidget(self.button) # 添加按钮到布局中
+        self.setLayout(layout) # 设置对话框的布局
+
+#子线程用于防止主界面卡,但是貌似在cpu环境下貌似还是会卡
+class FusionThread(QThread):
+    def __init__(self,img_stack_path,output_path,
+                                model_path,k_size,use_post_process,
+                                use_fuzzy,width,height,source_format,
+                                target_format,remove_noise):
+        super().__init__()
+        self.img_stack_path=img_stack_path
+        self.output_path=output_path
+        self.model_path=model_path
+        self.k_size=k_size
+        self.use_post_process=use_post_process
+        self.use_fuzzy=use_fuzzy
+        self.width=width
+        self.height=height
+        self.source_format=source_format
+        self.target_format=target_format
+        self.remove_noise=remove_noise
+        self.path=self.fusion()
+    def fusion(self):
+        path=fusion.stack_fusion(img_stack_path=self.img_stack_path, output_path=self.output_path,
+                     model_path=self.model_path, k_size=self.k_size, use_post_process=self.use_post_process,
+                     use_fuzzy=self.use_fuzzy, width=self.width, height=self.height, source_format=self.source_format,
+                     target_format=self.target_format, remove_noise=self.remove_noise)
+        return path.name_path
+
+
+
+
 
