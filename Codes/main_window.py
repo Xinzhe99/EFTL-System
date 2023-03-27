@@ -632,6 +632,7 @@ class MyWindow(QWidget):
     #用于设置融合图像输出的文件夹
     def set_fusion_output_path(self):
         path = QFileDialog.getExistingDirectory(self, "Choose output path")
+        self.fusion_output_path=path
         self.ui.out_put_path_edit.setText(path)
 
     #用于设置模型文件路径
