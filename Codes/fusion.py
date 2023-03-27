@@ -31,7 +31,9 @@ class stack_fusion():
         #获取图像列表
         pic_sequence_list = glob.glob(os.path.join(self.img_stack_path,img_source_type))
         #根据文件名排序，送入的图片文件名事先需要排序
-        pic_sequence_list.sort(key=lambda x: int(str(re.findall("\d+", x)[0])))  # Sort by the number in the file name
+        # pic_sequence_list.sort(key=lambda x: int(str(re.findall("\d+", x)[0])))  # Sort by the number in the file name
+        pic_sequence_list.sort(
+            key=lambda x: int(str(re.findall("\d+", x.split('/')[-1])[-1])))  # Sort by the number in the file name
         #创建空列表
         img_cv_list = [None] * (len(pic_sequence_list))
         img_list = [None] * (len(pic_sequence_list))
