@@ -130,7 +130,7 @@ class DNWithCA(nn.Module):
         add_kernel = torch.ones((c, 1, kernel_size, kernel_size)).float().to(device)#[80,1,11,11]
         kernel_padding = kernel_size // 2 #padding==5
         f1_sf = torch.sum(f.conv2d(f1_grad, add_kernel, padding=kernel_padding, groups=c), dim=1).to(device)
-        f1_sf_np = f1_sf.squeeze().cpu().numpy()
+        f1_sf_np = f1_sf.squeeze()
         return f1_sf_np
 
     @staticmethod
@@ -155,8 +155,4 @@ class DNWithCA(nn.Module):
                     torch.nn.BatchNorm2d(out_channels),
                 )
         return block
-# img=torch.rand(1,1,5,5)
-# print(img)
-# net=DNWithCA(trainmode=False)
-# out=net(img)
-# print(out)
+

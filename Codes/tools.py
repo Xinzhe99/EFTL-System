@@ -79,3 +79,27 @@ def judge_format(path):
     else:
         # 如果不是，输出"no"
         return False
+
+#批量去除文件夹里的空格和括号
+import os
+def rename_files(path):
+    for filename in os.listdir(path):
+        new_filename = filename.replace(" ", "").replace("(", "").replace(")", "")
+        os.rename(os.path.join(path, filename), os.path.join(path, new_filename))
+
+#判断文本内容是不是数字
+def is_number(s):
+    try:
+        float(s)
+        return True
+    except ValueError:
+        pass
+
+    try:
+        import unicodedata
+        unicodedata.numeric(s)
+        return True
+    except (TypeError, ValueError):
+        pass
+
+    return False

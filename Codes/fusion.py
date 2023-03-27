@@ -66,7 +66,7 @@ class stack_fusion():
             else:
                 pass
             img_list[i] = data_transforms(img_list[i]).unsqueeze(0).to(device)
-            sf_list[i] = model(img_list[i])
+            sf_list[i] = model(img_list[i]).cpu().numpy()
             print('finish send no.{} pic into the net'.format(str(i)))
 
         # generate initial decision map

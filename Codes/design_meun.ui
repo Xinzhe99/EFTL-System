@@ -2,6 +2,9 @@
 <ui version="4.0">
  <class>Form</class>
  <widget class="QWidget" name="Form">
+  <property name="enabled">
+   <bool>true</bool>
+  </property>
   <property name="geometry">
    <rect>
     <x>0</x>
@@ -10,14 +13,33 @@
     <height>704</height>
    </rect>
   </property>
+  <property name="minimumSize">
+   <size>
+    <width>1145</width>
+    <height>704</height>
+   </size>
+  </property>
+  <property name="maximumSize">
+   <size>
+    <width>1145</width>
+    <height>704</height>
+   </size>
+  </property>
+  <property name="mouseTracking">
+   <bool>false</bool>
+  </property>
   <property name="windowTitle">
    <string>Microscopic image stack fusion system</string>
+  </property>
+  <property name="windowIcon">
+   <iconset>
+    <normaloff>myico.ico</normaloff>myico.ico</iconset>
   </property>
   <widget class="QSlider" name="exp_control">
    <property name="geometry">
     <rect>
      <x>20</x>
-     <y>233</y>
+     <y>229</y>
      <width>121</width>
      <height>22</height>
     </rect>
@@ -30,7 +52,7 @@
    <property name="geometry">
     <rect>
      <x>20</x>
-     <y>203</y>
+     <y>201</y>
      <width>131</width>
      <height>16</height>
     </rect>
@@ -42,8 +64,8 @@
   <widget class="QLabel" name="label">
    <property name="geometry">
     <rect>
-     <x>20</x>
-     <y>263</y>
+     <x>16</x>
+     <y>279</y>
      <width>81</width>
      <height>16</height>
     </rect>
@@ -56,7 +78,7 @@
    <property name="geometry">
     <rect>
      <x>20</x>
-     <y>320</y>
+     <y>324</y>
      <width>81</width>
      <height>16</height>
     </rect>
@@ -81,8 +103,8 @@
   <widget class="QLabel" name="label_4">
    <property name="geometry">
     <rect>
-     <x>20</x>
-     <y>380</y>
+     <x>16</x>
+     <y>403</y>
      <width>41</width>
      <height>16</height>
     </rect>
@@ -91,26 +113,13 @@
     <string>Gain:</string>
    </property>
   </widget>
-  <widget class="QLabel" name="gain_show">
-   <property name="geometry">
-    <rect>
-     <x>60</x>
-     <y>382</y>
-     <width>54</width>
-     <height>12</height>
-    </rect>
-   </property>
-   <property name="text">
-    <string/>
-   </property>
-  </widget>
   <widget class="QGroupBox" name="groupBox">
    <property name="geometry">
     <rect>
      <x>10</x>
-     <y>183</y>
+     <y>178</y>
      <width>151</width>
-     <height>101</height>
+     <height>121</height>
     </rect>
    </property>
    <property name="title">
@@ -119,14 +128,50 @@
    <widget class="QLabel" name="exp_show">
     <property name="geometry">
      <rect>
-      <x>100</x>
-      <y>80</y>
-      <width>54</width>
+      <x>90</x>
+      <y>100</y>
+      <width>41</width>
       <height>20</height>
      </rect>
     </property>
     <property name="text">
      <string/>
+    </property>
+   </widget>
+   <widget class="QLabel" name="label_34">
+    <property name="geometry">
+     <rect>
+      <x>134</x>
+      <y>101</y>
+      <width>16</width>
+      <height>16</height>
+     </rect>
+    </property>
+    <property name="text">
+     <string>us</string>
+    </property>
+   </widget>
+   <widget class="QLineEdit" name="exp_edit">
+    <property name="geometry">
+     <rect>
+      <x>6</x>
+      <y>79</y>
+      <width>71</width>
+      <height>20</height>
+     </rect>
+    </property>
+   </widget>
+   <widget class="QPushButton" name="exp_set">
+    <property name="geometry">
+     <rect>
+      <x>89</x>
+      <y>78</y>
+      <width>51</width>
+      <height>23</height>
+     </rect>
+    </property>
+    <property name="text">
+     <string>Set</string>
     </property>
    </widget>
   </widget>
@@ -136,20 +181,69 @@
      <x>10</x>
      <y>302</y>
      <width>151</width>
-     <height>101</height>
+     <height>121</height>
     </rect>
    </property>
    <property name="title">
     <string>Gain</string>
    </property>
+   <widget class="QLabel" name="label_33">
+    <property name="geometry">
+     <rect>
+      <x>88</x>
+      <y>103</y>
+      <width>21</width>
+      <height>16</height>
+     </rect>
+    </property>
+    <property name="text">
+     <string>db</string>
+    </property>
+   </widget>
+   <widget class="QLineEdit" name="gain_edit">
+    <property name="geometry">
+     <rect>
+      <x>6</x>
+      <y>77</y>
+      <width>71</width>
+      <height>20</height>
+     </rect>
+    </property>
+   </widget>
+   <widget class="QPushButton" name="gain_set">
+    <property name="geometry">
+     <rect>
+      <x>88</x>
+      <y>76</y>
+      <width>51</width>
+      <height>23</height>
+     </rect>
+    </property>
+    <property name="text">
+     <string>Set</string>
+    </property>
+   </widget>
+   <widget class="QLabel" name="gain_show">
+    <property name="geometry">
+     <rect>
+      <x>40</x>
+      <y>100</y>
+      <width>41</width>
+      <height>20</height>
+     </rect>
+    </property>
+    <property name="text">
+     <string/>
+    </property>
+   </widget>
   </widget>
   <widget class="QGroupBox" name="groupBox_3">
    <property name="geometry">
     <rect>
      <x>10</x>
-     <y>10</y>
+     <y>6</y>
      <width>151</width>
-     <height>151</height>
+     <height>171</height>
     </rect>
    </property>
    <property name="title">
@@ -198,8 +292,8 @@
     <property name="geometry">
      <rect>
       <x>12</x>
-      <y>130</y>
-      <width>101</width>
+      <y>129</y>
+      <width>91</width>
       <height>16</height>
      </rect>
     </property>
@@ -224,9 +318,35 @@
     <property name="geometry">
      <rect>
       <x>108</x>
-      <y>128</y>
+      <y>126</y>
       <width>31</width>
       <height>21</height>
+     </rect>
+    </property>
+    <property name="text">
+     <string/>
+    </property>
+   </widget>
+   <widget class="QLabel" name="label_35">
+    <property name="geometry">
+     <rect>
+      <x>12</x>
+      <y>150</y>
+      <width>71</width>
+      <height>16</height>
+     </rect>
+    </property>
+    <property name="text">
+     <string>Video fps:</string>
+    </property>
+   </widget>
+   <widget class="QLabel" name="lb_show_fps">
+    <property name="geometry">
+     <rect>
+      <x>79</x>
+      <y>152</y>
+      <width>54</width>
+      <height>12</height>
      </rect>
     </property>
     <property name="text">
@@ -250,7 +370,7 @@
     <property name="geometry">
      <rect>
       <x>20</x>
-      <y>67</y>
+      <y>81</y>
       <width>111</width>
       <height>23</height>
      </rect>
@@ -263,7 +383,7 @@
     <property name="geometry">
      <rect>
       <x>20</x>
-      <y>98</y>
+      <y>108</y>
       <width>111</width>
       <height>23</height>
      </rect>
@@ -282,7 +402,7 @@
      </rect>
     </property>
     <property name="text">
-     <string>Interval:</string>
+     <string>Interval*:</string>
     </property>
    </widget>
    <widget class="QLineEdit" name="interval_input">
@@ -324,6 +444,44 @@
      <string>Save path is not set</string>
     </property>
    </widget>
+   <widget class="QComboBox" name="comboBox_output_format_2">
+    <property name="geometry">
+     <rect>
+      <x>92</x>
+      <y>56</y>
+      <width>51</width>
+      <height>20</height>
+     </rect>
+    </property>
+    <item>
+     <property name="text">
+      <string>jpg</string>
+     </property>
+    </item>
+    <item>
+     <property name="text">
+      <string>png</string>
+     </property>
+    </item>
+    <item>
+     <property name="text">
+      <string>bmp</string>
+     </property>
+    </item>
+   </widget>
+   <widget class="QLabel" name="label_32">
+    <property name="geometry">
+     <rect>
+      <x>9</x>
+      <y>59</y>
+      <width>81</width>
+      <height>16</height>
+     </rect>
+    </property>
+    <property name="text">
+     <string>Output Format</string>
+    </property>
+   </widget>
   </widget>
   <widget class="QGroupBox" name="groupBox_6">
    <property name="geometry">
@@ -345,6 +503,12 @@
       <width>781</width>
       <height>541</height>
      </rect>
+    </property>
+    <property name="sizePolicy">
+     <sizepolicy hsizetype="Fixed" vsizetype="Fixed">
+      <horstretch>0</horstretch>
+      <verstretch>0</verstretch>
+     </sizepolicy>
     </property>
     <property name="autoFillBackground">
      <bool>false</bool>
@@ -389,7 +553,7 @@
      </rect>
     </property>
     <property name="text">
-     <string>Iuput COM:</string>
+     <string>Iuput COM*:</string>
     </property>
    </widget>
    <widget class="QLabel" name="label_8">
@@ -579,7 +743,7 @@
    <property name="geometry">
     <rect>
      <x>980</x>
-     <y>268</y>
+     <y>261</y>
      <width>151</width>
      <height>131</height>
     </rect>
@@ -670,9 +834,9 @@
    <property name="geometry">
     <rect>
      <x>980</x>
-     <y>415</y>
+     <y>397</y>
      <width>151</width>
-     <height>281</height>
+     <height>301</height>
     </rect>
    </property>
    <property name="title">
@@ -688,7 +852,7 @@
      </rect>
     </property>
     <property name="text">
-     <string>Max diopter:</string>
+     <string>Max diopter*:</string>
     </property>
    </widget>
    <widget class="QLabel" name="label_15">
@@ -701,7 +865,7 @@
      </rect>
     </property>
     <property name="text">
-     <string>Min diopter:</string>
+     <string>Min diopter*:</string>
     </property>
    </widget>
    <widget class="QLabel" name="label_16">
@@ -714,7 +878,7 @@
      </rect>
     </property>
     <property name="text">
-     <string>Step:</string>
+     <string>Step*:</string>
     </property>
    </widget>
    <widget class="QLabel" name="label_17">
@@ -727,13 +891,13 @@
      </rect>
     </property>
     <property name="text">
-     <string>One trip time</string>
+     <string>One trip time:</string>
     </property>
    </widget>
    <widget class="QLineEdit" name="max_diopter_input">
     <property name="geometry">
      <rect>
-      <x>91</x>
+      <x>96</x>
       <y>28</y>
       <width>41</width>
       <height>21</height>
@@ -746,7 +910,7 @@
    <widget class="QLineEdit" name="min_diopter_input">
     <property name="geometry">
      <rect>
-      <x>91</x>
+      <x>96</x>
       <y>60</y>
       <width>41</width>
       <height>21</height>
@@ -759,7 +923,7 @@
    <widget class="QLineEdit" name="step_diopter_input">
     <property name="geometry">
      <rect>
-      <x>91</x>
+      <x>96</x>
       <y>90</y>
       <width>41</width>
       <height>21</height>
@@ -772,7 +936,7 @@
    <widget class="QLineEdit" name="cycle_diopter_input">
     <property name="geometry">
      <rect>
-      <x>91</x>
+      <x>96</x>
       <y>119</y>
       <width>41</width>
       <height>21</height>
@@ -786,7 +950,7 @@
     <property name="geometry">
      <rect>
       <x>20</x>
-      <y>212</y>
+      <y>231</y>
       <width>111</width>
       <height>23</height>
      </rect>
@@ -799,7 +963,7 @@
     <property name="geometry">
      <rect>
       <x>11</x>
-      <y>150</y>
+      <y>169</y>
       <width>81</width>
       <height>16</height>
      </rect>
@@ -812,20 +976,20 @@
     <property name="geometry">
      <rect>
       <x>101</x>
-      <y>148</y>
-      <width>51</width>
+      <y>167</y>
+      <width>41</width>
       <height>21</height>
      </rect>
     </property>
     <property name="text">
-     <string/>
+     <string>0</string>
     </property>
    </widget>
    <widget class="QCheckBox" name="btn_save_pic_zoom">
     <property name="geometry">
      <rect>
       <x>21</x>
-      <y>168</y>
+      <y>187</y>
       <width>121</width>
       <height>16</height>
      </rect>
@@ -838,7 +1002,7 @@
     <property name="geometry">
      <rect>
       <x>21</x>
-      <y>189</y>
+      <y>208</y>
       <width>121</width>
       <height>16</height>
      </rect>
@@ -851,7 +1015,7 @@
     <property name="geometry">
      <rect>
       <x>11</x>
-      <y>260</y>
+      <y>279</y>
       <width>41</width>
       <height>16</height>
      </rect>
@@ -864,7 +1028,7 @@
     <property name="geometry">
      <rect>
       <x>60</x>
-      <y>260</y>
+      <y>279</y>
       <width>91</width>
       <height>16</height>
      </rect>
@@ -877,13 +1041,52 @@
     <property name="geometry">
      <rect>
       <x>20</x>
-      <y>238</y>
+      <y>257</y>
       <width>111</width>
       <height>23</height>
      </rect>
     </property>
     <property name="text">
      <string>Stop zoom</string>
+    </property>
+   </widget>
+   <widget class="QLabel" name="label_30">
+    <property name="geometry">
+     <rect>
+      <x>10</x>
+      <y>146</y>
+      <width>41</width>
+      <height>16</height>
+     </rect>
+    </property>
+    <property name="text">
+     <string>Number:</string>
+    </property>
+   </widget>
+   <widget class="QLabel" name="lb_pic_number_show">
+    <property name="geometry">
+     <rect>
+      <x>56</x>
+      <y>143</y>
+      <width>51</width>
+      <height>21</height>
+     </rect>
+    </property>
+    <property name="text">
+     <string>0</string>
+    </property>
+   </widget>
+   <widget class="QLabel" name="label_31">
+    <property name="geometry">
+     <rect>
+      <x>141</x>
+      <y>121</y>
+      <width>16</width>
+      <height>16</height>
+     </rect>
+    </property>
+    <property name="text">
+     <string>s</string>
     </property>
    </widget>
   </widget>
@@ -909,7 +1112,7 @@
      </rect>
     </property>
     <property name="text">
-     <string>Fusion path:</string>
+     <string>Fusion path*:</string>
     </property>
    </widget>
    <widget class="QLineEdit" name="fusion_path_edit">
@@ -997,7 +1200,7 @@
      </rect>
     </property>
     <property name="text">
-     <string>Output path:</string>
+     <string>Output path*:</string>
     </property>
    </widget>
    <widget class="QLineEdit" name="model_path_edit">
@@ -1020,7 +1223,7 @@
      </rect>
     </property>
     <property name="text">
-     <string>Model path:</string>
+     <string>Model path*:</string>
     </property>
    </widget>
    <widget class="QPushButton" name="btn_select_model_path">
@@ -1204,9 +1407,32 @@
      <number>0</number>
     </property>
    </widget>
+   <zorder>label_25</zorder>
+   <zorder>fusion_path_edit</zorder>
+   <zorder>btn_select_fusion_path</zorder>
+   <zorder>btn_post_process</zorder>
+   <zorder>btn_start_fusion</zorder>
+   <zorder>btn_select_output_path</zorder>
+   <zorder>out_put_path_edit</zorder>
+   <zorder>label_26</zorder>
+   <zorder>model_path_edit</zorder>
+   <zorder>label_27</zorder>
+   <zorder>btn_select_model_path</zorder>
+   <zorder>comboBox_output_format</zorder>
+   <zorder>label_28</zorder>
+   <zorder>label_29</zorder>
+   <zorder>output_width_2</zorder>
+   <zorder>output_width</zorder>
+   <zorder>output_height</zorder>
+   <zorder>edit_kernel</zorder>
+   <zorder>output_width_3</zorder>
+   <zorder>btn_set_ksize_2</zorder>
+   <zorder>fusion_progress</zorder>
+   <zorder>btn_fuzzy</zorder>
+   <zorder>btn_remove_noise</zorder>
   </widget>
-  <zorder>groupBox_3</zorder>
   <zorder>groupBox_9</zorder>
+  <zorder>groupBox_3</zorder>
   <zorder>groupBox_6</zorder>
   <zorder>groupBox</zorder>
   <zorder>groupBox_2</zorder>
@@ -1216,7 +1442,6 @@
   <zorder>btn_Auto_Gain</zorder>
   <zorder>gain_control</zorder>
   <zorder>label_4</zorder>
-  <zorder>gain_show</zorder>
   <zorder>groupBox_4</zorder>
   <zorder>groupBox_7</zorder>
   <zorder>groupBox_8</zorder>
