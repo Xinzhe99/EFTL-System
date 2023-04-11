@@ -1,4 +1,4 @@
-# Data set capture & image stack fusion
+# Dataset capture & image stack fusion
 **Hareware : Flir industrial camera, optotune controllable lens.**
 # Requirements
 Windows\
