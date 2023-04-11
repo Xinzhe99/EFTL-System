@@ -103,3 +103,9 @@ def is_number(s):
         pass
 
     return False
+
+
+#判断有没有中文字符
+def has_chinese_char(text):
+    pattern = re.compile(r'[\u4e00-\u9fa5]')
+    return pattern.search(text)

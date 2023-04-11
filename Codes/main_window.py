@@ -1,10 +1,13 @@
+# -*- coding: utf-8 -*-
+# @Author  : XinZhe Xie
+# @University  : ZheJiang University
 from PyQt5 import uic
 import PySpin
 from PyQt5.QtGui import QImage, QPixmap
 import os
 from PyQt5.QtCore import QTimer,QThread,Qt
 from PyQt5.QtWidgets import QFileDialog, QMessageBox
-from tools import get_pic_size_in_dir,get_first_image_format,judge_format,is_number
+from tools import get_pic_size_in_dir,get_first_image_format,judge_format,is_number,has_chinese_char
 import cv2
 from lens import Lens
 from PyQt5.QtWidgets import QApplication, QWidget, QPushButton, QDialog, QLineEdit, QVBoxLayout
@@ -23,11 +26,16 @@ class MyWindow(QWidget):
     def __init__(self):
         super().__init__()
         self.ui = uic.loadUi('design_meun.ui')  # 加载designer设计的ui程序
-        self.camera_system = PySpin.System.GetInstance()
-        self.cam_list = self.camera_system.GetCameras()
-        self.cam = self.cam_list[0]
-        self.nodemap_tldevice = self.cam.GetTLDeviceNodeMap()#
-        self.sNodemap = self.cam.GetTLStreamNodeMap()#获取传输层流节点映射,传输层流是指相机和主机之间的数据流，它可以通过不同的传输协议来实现
+        try:
+            self.camera_system = PySpin.System.GetInstance()
+            self.cam_list = self.camera_system.GetCameras()
+            self.cam = self.cam_list[0]
+            self.nodemap_tldevice = self.cam.GetTLDeviceNodeMap()#
+            self.sNodemap = self.cam.GetTLStreamNodeMap()#获取传输层流节点映射,传输层流是指相机和主机之间的数据流，它可以通过不同的传输协议来实现
+
+        except Exception as e:
+            # 输出异常信息
+            print(e)
 
         #启动按钮
         btn_start_capture=self.ui.btn_begin_caputre #获取相机画面按钮
@@ -281,7 +289,7 @@ class MyWindow(QWidget):
     def update_image(self):
         #获取实时gain
         real_gain=self.cam.Gain.GetValue()
-        self.real_gain = real_gain
+        self.real_gain = round(real_gain,3)
 
         # 根据实时曝光时间调整等待时间
         timeout = 0
@@ -608,7 +616,7 @@ class MyWindow(QWidget):
 
     #用于设置融合图像栈路径
     def set_fusion_path(self):
-        path = QFileDialog.getExistingDirectory(self, "Choose stack path")
+        path = QFileDialog.getExistingDirectory(self, "Choose image stack path")
         flag_have_pic = False
         if os.path.isdir(path):  # 检查path是否为一个存在的文件夹
             #检查是否包含图片
@@ -669,13 +677,19 @@ class MyWindow(QWidget):
         else:
             QMessageBox.information(self, 'Notice',
                                     u'Not a directory')
+        QMessageBox.information(self, 'Notice',
+                                u'Please make sure that the images in the folder are renamed in ordery')
 
     #用于edit更新输入图像栈路径
     def update_target_path(self):
         # 检查输出路径是否是一个文件夹
         path_out_dir_path = self.ui.out_put_path_edit.text()
         if os.path.isdir(path_out_dir_path):  # 检查path是否为一个存在的文件夹
-            self.fusion_output_path=path_out_dir_path
+            if has_chinese_char(path_out_dir_path):
+                QMessageBox.information(self, 'Notice',
+                                        u'Output path does not support Chinese characters')
+            else:
+                self.fusion_output_path=path_out_dir_path
         else:
             QMessageBox.information(self, 'Notice',
                                     u'Not a directory')
@@ -779,6 +793,19 @@ class MyWindow(QWidget):
                                     u'Please check if the input and output are correct')
         QMessageBox.information(self, 'Notice',
                                 u'Fusion done,img is save in {}'.format(save_path))
+
+    # 用于安全退出，释放摄像头
+    def closeEvent(self, event):
+        self.cam.DeInit()
+        del self.cam
+
+        # Clear camera list before releasing system
+        self.cam_list.Clear()
+
+        # Release system instance
+        self.system.ReleaseInstance()
+
+        event.accept()
 
 #子线程用来保存图片，不影响主线程显示
 class Save_img(QThread):

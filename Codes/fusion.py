@@ -1,7 +1,10 @@
+# -*- coding: utf-8 -*-
+# @Author  : XinZhe Xie
+# @University  : ZheJiang University
+
 import torch
 import torch.nn as nn
 from torchvision import transforms
-import time
 import numpy as np
 import os
 import net
@@ -11,6 +14,7 @@ from PIL import Image
 import re
 from numba import jit
 from numba.typed import List
+
 class stack_fusion():
     def __init__(self,img_stack_path,output_path,model_path,k_size,use_post_process,use_fuzzy,width,height,source_format,target_format,remove_noise):
         self.img_stack_path=img_stack_path
@@ -43,17 +47,17 @@ class stack_fusion():
         data_transforms = transforms.Compose([
             transforms.ToTensor(),
             transforms.Normalize([0.5], [0.5])])
-
+        #todo
+        # model = nn.DataParallel(model)
         #获取可用的gpu
         num_gpus = torch.cuda.device_count()
         if num_gpus > 1:
-            model = nn.DataParallel(model)
             device = torch.device("cuda")
         else:
             device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
 
         model.to(device)
-        model.load_state_dict(torch.load(self.model_path, map_location=device))
+        model.load_state_dict(torch.load(self.model_path, map_location=device),strict=False)
 
         model.eval()
 
