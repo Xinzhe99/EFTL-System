@@ -200,79 +200,81 @@ class MyWindow(QWidget):
 
     #用于初始化相机并且开启定时器捕获图像
     def start_capture(self):
-        #先使能按钮
-        self.btn_save_pictures.setEnabled(True)
-        self.btn_stop_save_pictures.setEnabled(True)
-        self.btn_auto_exposure.setEnabled(True)
-        self.btn_auto_gain.setEnabled(True)
-        self.ui.btn_stop_caputre.setEnabled(True)
-
-        #获取相机版本型号
-        cam_version = self.camera_system.GetLibraryVersion()
-        self.lb_video_inf.setText('Library version: %d.%d.%d.%d' % (
-            cam_version.major, cam_version.minor, cam_version.type, cam_version.build))
 
         # 获取相机数量,这里只支持一个!
         num_cameras = self.cam_list.GetSize()
-        self.lb_num_cam.setText('%d' % num_cameras)
+        if num_cameras!=0:
+            # 获取相机版本型号
+            cam_version = self.camera_system.GetLibraryVersion()
+            self.lb_video_inf.setText('Library version: %d.%d.%d.%d' % (
+                cam_version.major, cam_version.minor, cam_version.type, cam_version.build))
+            # 使能按钮
+            self.btn_save_pictures.setEnabled(True)
+            self.btn_stop_save_pictures.setEnabled(True)
+            self.btn_auto_exposure.setEnabled(True)
+            self.btn_auto_gain.setEnabled(True)
+            self.ui.btn_stop_caputre.setEnabled(True)
+            self.lb_num_cam.setText('%d' % num_cameras)
 
-        #相机初始化
-        self.cam.Init()
+            #相机初始化
+            self.cam.Init()
 
-        # 创建节点对象，用于访问和修改流缓冲区处理模式的参数
-        self.node_bufferhandling_mode = PySpin.CEnumerationPtr(self.sNodemap.GetNode('StreamBufferHandlingMode'))
-        if not PySpin.IsAvailable(self.node_bufferhandling_mode) or not PySpin.IsWritable(
-                self.node_bufferhandling_mode):
-            print('Unable to set stream buffer handling mode.. Aborting...')
+            # 创建节点对象，用于访问和修改流缓冲区处理模式的参数
+            self.node_bufferhandling_mode = PySpin.CEnumerationPtr(self.sNodemap.GetNode('StreamBufferHandlingMode'))
+            if not PySpin.IsAvailable(self.node_bufferhandling_mode) or not PySpin.IsWritable(
+                    self.node_bufferhandling_mode):
+                print('Unable to set stream buffer handling mode.. Aborting...')
 
-        # 设置流缓冲区处理模式为最新模式
-        node_newestonly = self.node_bufferhandling_mode.GetEntryByName('NewestOnly')
-        if not PySpin.IsAvailable(node_newestonly) or not PySpin.IsReadable(node_newestonly):
-            print('Unable to set stream buffer handling mode.. Aborting...')
-        self.node_newestonly_mode = node_newestonly.GetValue()
+            # 设置流缓冲区处理模式为最新模式
+            node_newestonly = self.node_bufferhandling_mode.GetEntryByName('NewestOnly')
+            if not PySpin.IsAvailable(node_newestonly) or not PySpin.IsReadable(node_newestonly):
+                print('Unable to set stream buffer handling mode.. Aborting...')
+            self.node_newestonly_mode = node_newestonly.GetValue()
 
-        # 设置流缓冲区处理模式为最新模式，它使用之前获取的最新模式的整数值，作为流缓冲区处理模式枚举节点的新值。 这样，相机就会只保留最新的图像，而丢弃旧的图像。
-        self.node_bufferhandling_mode.SetIntValue(self.node_newestonly_mode)
+            # 设置流缓冲区处理模式为最新模式，它使用之前获取的最新模式的整数值，作为流缓冲区处理模式枚举节点的新值。 这样，相机就会只保留最新的图像，而丢弃旧的图像。
+            self.node_bufferhandling_mode.SetIntValue(self.node_newestonly_mode)
 
-        #获取相机的设备序列号
-        node_device_serial_number = PySpin.CStringPtr(self.nodemap_tldevice.GetNode('DeviceSerialNumber'))
-        if PySpin.IsAvailable(node_device_serial_number) and PySpin.IsReadable(node_device_serial_number):
-            device_serial_number = node_device_serial_number.GetValue()
-            print('Device serial number retrieved as %s...' % device_serial_number)
+            #获取相机的设备序列号
+            node_device_serial_number = PySpin.CStringPtr(self.nodemap_tldevice.GetNode('DeviceSerialNumber'))
+            if PySpin.IsAvailable(node_device_serial_number) and PySpin.IsReadable(node_device_serial_number):
+                device_serial_number = node_device_serial_number.GetValue()
+                print('Device serial number retrieved as %s...' % device_serial_number)
 
-        #相机开始获取图像
-        self.cam.BeginAcquisition()
-        print('All initial finished,Begin to Acquisition')
+            #相机开始获取图像
+            self.cam.BeginAcquisition()
+            print('All initial finished,Begin to Acquisition')
 
-        #获取实时fps
-        self.real_fps = self.cam.AcquisitionResultingFrameRate.GetValue()
+            #获取实时fps
+            self.real_fps = self.cam.AcquisitionResultingFrameRate.GetValue()
 
-        #相机初始化自动曝光
-        self.Reset_exposure()
+            #相机初始化自动曝光
+            self.Reset_exposure()
 
-        #相机初始化增益
-        self.Reset_gain()
+            #相机初始化增益
+            self.Reset_gain()
 
-        #用定时器来获取新的图像
-        self.timer_video.start(0)
+            #用定时器来获取新的图像
+            self.timer_video.start(0)
 
-        # 用定时器来更新曝光时间显示的标签
-        self.exp_show_timer.start(0)
+            # 用定时器来更新曝光时间显示的标签
+            self.exp_show_timer.start(0)
 
-        # 用定时器来更新gain显示的标签
-        self.gain_show_timer.start(0)
+            # 用定时器来更新gain显示的标签
+            self.gain_show_timer.start(0)
 
-        # 用定时器来获取fps
-        self.fps_show_timer.start(0)
+            # 用定时器来获取fps
+            self.fps_show_timer.start(0)
 
-        #关闭这个按钮，不然会报错
-        self.ui.btn_begin_caputre.setEnabled(False)
+            #关闭这个按钮，不然会报错
+            self.ui.btn_begin_caputre.setEnabled(False)
 
-        # 支持的曝光时间非常久，容易卡，这里手动设置为30000
-        self.exposure_time_slider.setRange(self.cam.ExposureTime.GetMin(), 30000)
+            # 支持的曝光时间非常久，容易卡，这里手动设置为30000
+            self.exposure_time_slider.setRange(self.cam.ExposureTime.GetMin(), 30000)
 
-        #设置增益的slider上下限
-        self.gain_slider.setRange(self.cam.Gain.GetMin(),self.cam.Gain.GetMax())
+            #设置增益的slider上下限
+            self.gain_slider.setRange(self.cam.Gain.GetMin(),self.cam.Gain.GetMax())
+        else:
+            QMessageBox.information(self, "notice", 'Please check if the camera is connected')
     #用于关闭相机
     def stop_capture(self):
         lb_video_inf = self.ui.video_inf
