@@ -1,18 +1,23 @@
 # -*- coding: utf-8 -*-
 # @Author  : XinZhe Xie
 # @University  : ZheJiang University
-from PyQt5 import uic
 import PySpin
-from PyQt5.QtGui import QImage, QPixmap
+from PyQt5.QtGui import QImage, QPixmap, QIcon, QPainter, QPen
 import os
-from PyQt5.QtCore import QTimer,QThread,Qt
-from PyQt5.QtWidgets import QFileDialog, QMessageBox
-from tools import get_pic_size_in_dir,get_first_image_format,judge_format,is_number,has_chinese_char
+from PyQt5.QtCore import QTimer, QThread, Qt, QRect
+from PyQt5.QtWidgets import QFileDialog, QMessageBox, QInputDialog, QLabel
+from tools import is_number,cal_clarity,max_y
+
 import cv2
 from lens import Lens
-from PyQt5.QtWidgets import QApplication, QWidget, QPushButton, QDialog, QLineEdit, QVBoxLayout
+from PyQt5.QtWidgets import QApplication, QWidget
 import time
-import fusion
+import sys
+from PyQt5 import uic
+import numpy as np
+from scipy.optimize import curve_fit
+import serial.tools.list_ports
+
 #允许多个进程同时使用OpenMP库
 os.environ["KMP_DUPLICATE_LIB_OK"] = "TRUE"
 
@@ -21,21 +26,29 @@ support_format=[".jpg", ".png", ".bmp"]
 
 # flag定义全局变量 图片保存的序号默认从1开始
 flag_save_number = 1
+# 检查屈光度更新的flag
+diop_updata_flag=10000
+
+#局部对焦flag
+roi_flag=False
+
 
 class MyWindow(QWidget):
     def __init__(self):
         super().__init__()
-        self.ui = uic.loadUi('design_meun.ui')  # 加载designer设计的ui程序
-        try:
-            self.camera_system = PySpin.System.GetInstance()
-            self.cam_list = self.camera_system.GetCameras()
-            self.cam = self.cam_list[0]
-            self.nodemap_tldevice = self.cam.GetTLDeviceNodeMap()#
-            self.sNodemap = self.cam.GetTLStreamNodeMap()#获取传输层流节点映射,传输层流是指相机和主机之间的数据流，它可以通过不同的传输协议来实现
 
-        except Exception as e:
-            # 输出异常信息
-            print(e)
+        if getattr(sys,'frozen', False):
+            ui_path = os.path.join(sys._MEIPASS, 'design_menu.ui')
+        else:
+            ui_path = 'design_menu.ui'
+
+        self.ui = uic.loadUi(ui_path)
+
+        if getattr(sys, 'frozen', False):
+            ico_path = os.path.join(sys._MEIPASS, 'myico.ico')
+        else:
+            ico_path = 'myico.ico'
+        self.ui.setWindowIcon(QIcon(ico_path))
 
         #启动按钮
         btn_start_capture=self.ui.btn_begin_caputre #获取相机画面按钮
@@ -136,30 +149,6 @@ class MyWindow(QWidget):
         self.btn_stop_cycle=self.ui.btn_stop_cycle_diopter
         self.btn_stop_cycle.clicked.connect(self.stop_cycle)
 
-        #用于选择融合图像栈的路径
-        self.btn_fusion_stack=self.ui.btn_select_fusion_path
-        self.btn_fusion_stack.clicked.connect(self.set_fusion_path)
-
-        #用于选择融合图像输出的路径
-        self.btn_fusion_stack_output = self.ui.btn_select_output_path
-        self.btn_fusion_stack_output.clicked.connect(self.set_fusion_output_path)
-
-        # 用于选择model路径
-        self.btn_select_model_path=self.ui.btn_select_model_path
-        self.btn_select_model_path.clicked.connect(self.set_model_path)
-
-        #用于开始融合按钮
-        self.btn_start_fusion=self.ui.btn_start_fusion
-        self.btn_start_fusion.clicked.connect(self.start_fusion)
-
-        #用于绑定路径并且监听3个编辑框的内容是否发生了改变
-        self.fusion_path_edit=self.ui.fusion_path_edit
-        self.out_put_path_edit=self.ui.out_put_path_edit
-        self.model_path_edit=self.ui.model_path_edit
-        #监听三个path edit,按下回车键或者失去焦点时触发，检查并更新
-        self.fusion_path_edit.editingFinished.connect(self.update_source_path)
-        self.out_put_path_edit.editingFinished.connect(self.update_target_path)
-        self.model_path_edit.editingFinished.connect(self.update_model_path)
 
         #用于绑定cycle用的编辑框，监听是否发生改变，计算图片数量用
         self.max_diopter_input=self.ui.max_diopter_input
@@ -188,19 +177,107 @@ class MyWindow(QWidget):
         self.btn_exp_set.clicked.connect(self.set_exposure_edit)
         self.btn_gain_set.clicked.connect(self.set_gain_edit)
 
+        #绑定用于自动对焦的按钮
+        self.btn_auto_focus=self.ui.btn_autofocus
+        self.btn_auto_focus.clicked.connect(self.auto_focus)
+
+        # 获取端口列表
+        self.get_port_list()
+
+        #绑定录像按钮
+        self.btn_start_capture_video=self.ui.btn_begin_save_2
+        self.btn_start_capture_video.clicked.connect(self.start_recording)
+
+        #设置录制的flag,默认不录制
+        self.record_flag = False
+
+        #设置录像的帧列表
+        self.frameslist=[]
+
+        #绑定结束录像按钮
+        self.btn_stop_capture_video = self.ui.btn_stop_save_2
+        self.btn_stop_capture_video.clicked.connect(self.stop_recording)
+
+        #防止误点，一开始冻结录像按钮
+        self.btn_stop_capture_video.setEnabled(False)
+        self.btn_start_capture_video.setEnabled(False)
+
+        # 冻结透镜区域功能按钮
+        self.ui.btn_set_diopter.setEnabled(False)
+        self.ui.btn_Reset_diopter.setEnabled(False)
+        self.ui.btn_cycle_diopter.setEnabled(False)
+        self.ui.btn_stop_cycle_diopter.setEnabled(False)
+
+        #冻结保存图像和图片的停止按钮
+        self.ui.btn_stop_save.setEnabled(False)
+        self.ui.btn_stop_save_2.setEnabled(False)
+
+        #绑定双击局部聚焦
+        self.ui.video_label.mouseDoubleClickEvent = self.roi_focus  # 绑定双击信号
+
+        #绑定
+        self.ui.btn_set_focus.clicked.connect(self.set_focus)
+
+        #设置默认的对焦参数
+        self.roi_height = 50
+        self.roi_width = 50
+
+        #框选区域进行自动对焦
+        self.start_pos = None
+        self.end_pos = None
+
+        #绑定框选对焦
+        self.ui.video_label.mousePressEvent = self.boxout_mousePressEvent
+        self.ui.video_label.mouseReleaseEvent = self.boxout_mouseReleaseEvent
+        self.ui.video_label.mouseMoveEvent = self.boxout_mouseMoveEvent
+
+        # 鼠标移动中Flag,防止两个鼠标事件起冲突，效果和过滤器差不多
+        self.move_flag = False
+
+    #获取端口列表
+    def get_port_list(self):
+        plist = list(serial.tools.list_ports.comports())
+
+        if len(plist) <= 0:
+            QMessageBox.information(self, 'Notice', 'Cannot find any com can be used!')
+
+        else:
+            self.ui.comboBox_port.clear()
+            for i in range(0, len(plist)):
+                self.plist_0 = list(plist[i])
+                self.ui.comboBox_port.addItem(str(self.plist_0[0]))
+
     # 用于手动设置编辑框输入的曝光值
     def set_exposure_edit(self):
-        exp_to_set = float(self.exp_edit.text())
-        self.cam.ExposureTime.SetValue(exp_to_set)
+        exp_to_set_text = self.exp_edit.text()
+        if is_number(exp_to_set_text):
+            exp_to_set=float(exp_to_set_text)
+            self.cam.ExposureTime.SetValue(exp_to_set)
+        else:
+            QMessageBox.information(self, "notice", 'Please enter exposure value')
 
     # 用于手动设置编辑框输入的增益值
     def set_gain_edit(self):
-        gain_to_set = float(self.gain_edit.text())
-        self.cam.Gain.SetValue(gain_to_set)
+        gain_to_set_text=self.gain_edit.text()
+        if is_number(gain_to_set_text):
+            gain_to_set = float(gain_to_set_text)
+            self.cam.Gain.SetValue(gain_to_set)
+        else:
+            QMessageBox.information(self, "notice", 'Please enter gain value')
+
 
     #用于初始化相机并且开启定时器捕获图像
     def start_capture(self):
-
+        try:
+            self.camera_system = PySpin.System.GetInstance()
+            self.cam_list = self.camera_system.GetCameras()
+            self.cam = self.cam_list[0]
+            self.nodemap_tldevice = self.cam.GetTLDeviceNodeMap()#
+            self.sNodemap = self.cam.GetTLStreamNodeMap()#获取传输层流节点映射,传输层流是指相机和主机之间的数据流，它可以通过不同的传输协议来实现
+            self.nodemap = self.cam.GetNodeMap()
+        except Exception as e:
+            # 输出异常信息
+            print(e)
         # 获取相机数量,这里只支持一个!
         num_cameras = self.cam_list.GetSize()
         if num_cameras!=0:
@@ -208,6 +285,8 @@ class MyWindow(QWidget):
             cam_version = self.camera_system.GetLibraryVersion()
             self.lb_video_inf.setText('Library version: %d.%d.%d.%d' % (
                 cam_version.major, cam_version.minor, cam_version.type, cam_version.build))
+            # 相机初始化
+            self.cam.Init()
             # 使能按钮
             self.btn_save_pictures.setEnabled(True)
             self.btn_stop_save_pictures.setEnabled(True)
@@ -215,10 +294,8 @@ class MyWindow(QWidget):
             self.btn_auto_gain.setEnabled(True)
             self.ui.btn_stop_caputre.setEnabled(True)
             self.lb_num_cam.setText('%d' % num_cameras)
-
-            #相机初始化
-            self.cam.Init()
-
+            self.btn_stop_capture_video.setEnabled(False)
+            self.btn_start_capture_video.setEnabled(True)
             # 创建节点对象，用于访问和修改流缓冲区处理模式的参数
             self.node_bufferhandling_mode = PySpin.CEnumerationPtr(self.sNodemap.GetNode('StreamBufferHandlingMode'))
             if not PySpin.IsAvailable(self.node_bufferhandling_mode) or not PySpin.IsWritable(
@@ -273,9 +350,12 @@ class MyWindow(QWidget):
 
             #设置增益的slider上下限
             self.gain_slider.setRange(self.cam.Gain.GetMin(),self.cam.Gain.GetMax())
+
+            self.ui.btn_stop_save_2.setEnabled(False)
+            self.ui.btn_stop_save.setEnabled(False)
         else:
             QMessageBox.information(self, "notice", 'Please check if the camera is connected')
-    #用于关闭相机
+    #用于虚假关闭相机，其实还在
     def stop_capture(self):
         lb_video_inf = self.ui.video_inf
         lb_video_inf.setText('End EndAcquisition!')
@@ -285,7 +365,33 @@ class MyWindow(QWidget):
         #控制按钮，防止误点崩溃
         self.ui.btn_begin_caputre.setEnabled(True)
         self.ui.btn_stop_caputre.setEnabled(False)
+        self.img_show_lable.clear()
+
+        self.ui.btn_begin_save.setEnabled(False)
+        self.ui.btn_begin_save_2.setEnabled(False)
+        self.ui.btn_stop_save.setEnabled(False)
+        self.ui.btn_stop_save_2.setEnabled(False)
+
+        #关闭三个定时器，停止更新
+        self.exp_show_timer.stop()
+        self.gain_show_timer.stop()
+        self.fps_show_timer.stop()
+        self.ui.lb_show_fps.setText('')
+        self.ui.exp_show.setText('')
+        self.ui.gain_show.setText('')
+
+
+
+        # 自动曝光初始化默认开启
+        self.btn_auto_exposure.setChecked(True)
+        # 该按钮默认不能用，开始捕获图像后才可以
+        self.btn_auto_exposure.setEnabled(False)
+        # 自动gain默认开启
+        self.btn_auto_gain.setChecked(True)  # 自动gain初始化默认开启
+        # 该按钮默认不能用，开始捕获图像后才可以
+        self.btn_auto_gain.setEnabled(False)
         print('End EndAcquisition!')
+
 
     #用于定时器获取一张图像并显示出来
     def update_image(self):
@@ -318,6 +424,9 @@ class MyWindow(QWidget):
             self.save_img_sub_thread=Save_img(data=image_data_np,path=self.pic_save_path,save_format=format_need)#todo 代码写了，但没有测试是否可以支持保存rgb
 
             self.need_save_fig=False#保存flag置为False,等待下一次置为True
+        #如果需要录制下来
+        if self.record_flag==True:
+            self.frameslist.append(image_result)
 
         #显示(灰度)
         if len(image_data_np.shape) == 2:
@@ -336,7 +445,7 @@ class MyWindow(QWidget):
             self.img_show_lable.setScaledContents(True)
             #释放内存
             image_result.Release()
-
+        return image_data_np
     #用于重置相机曝光模式到自动
     def Reset_exposure(self):
         if self.cam.ExposureAuto.GetAccessMode() != PySpin.RW:
@@ -430,18 +539,22 @@ class MyWindow(QWidget):
     #用于获取保存路径,并保存在类对象里,返回最终保存路径
     def get_save_path(self):
         self.pic_save_path=QFileDialog.getExistingDirectory(self, "choose save path")
-        self.ui.label_save_path_state.setText('Save path is set')
+
         return self.pic_save_path
 
     # 用于图像开始保存
     def start_save_picture(self):
         self.get_save_path()# return self.pic_save_path
-        print(self.ui.interval_input.text())
-        if self.ui.interval_input.text().isdigit():
-            self.save_interval = int(self.ui.interval_input.text())#这里保存int类型，单位是ms
+
+        text, ok = QInputDialog.getInt(self, "Save interval", "ms:")
+        if ok:
+            self.save_interval=int(text)
             self.img_save_timer.start(self.save_interval)#启动定时器用于更改保存flag
+            self.ui.btn_stop_save.setEnabled(True)
+            self.ui.label_show_save_inf.setText('Working')
         else:
-            QMessageBox.information(self, "notice", 'The time interval "%s" for saving images is not a number' % str(self.ui.interval_input.text()))
+            QMessageBox.information(self, "notice", 'Please check if you have entered the correct save interval')
+
 
     #用于获取一张图像并且保存下来
     def save_one_img(self):
@@ -455,17 +568,16 @@ class MyWindow(QWidget):
         #关闭定时器，关闭保存
         self.img_save_timer.stop()
         self.need_save_fig=False
-
+        QMessageBox.information(self, "notice", 'All pictures have been saved in {}'.format(self.pic_save_path))
+        self.ui.btn_stop_save.setEnabled(False)
+        self.ui.label_show_save_inf.setText('Not Working')
     # 用于创建透镜子类，控制透镜
     def create_len(self):
-        if not self.ui.com_input_edit.text().isdigit():
-            QMessageBox.information(self, "Notice", 'You haven\'t entered the correct port number')
-        else:
-            com=self.ui.com_input_edit.text()
-            com = 'com' + str(com)
-            self.lens = Lens(com, debug=False)
+        try:
+            self.lens = Lens(self.ui.comboBox_port.currentText(), debug=False)
             if self.lens.comNum == 0:
                 QMessageBox.information(self,'Notice', u'The connection has failed, please enter the correct port number and check if the hardware device is plugged in')
+
             elif self.lens.comNum == 1:
                 #状态显示
                 self.ui.lb_show_com.setText('Connected')
@@ -488,23 +600,38 @@ class MyWindow(QWidget):
                 self.ui.lb_posi_dip_show.setText(str(max_diop))
                 self.ui.lb_neg_dip_show.setText(str(min_diop))
 
+                #使能按钮
+                self.ui.btn_set_diopter.setEnabled(True)
+                self.ui.btn_Reset_diopter.setEnabled(True)
+                self.ui.btn_cycle_diopter.setEnabled(True)
+                self.ui.btn_stop_cycle_diopter.setEnabled(True)
+        except:
+            QMessageBox.critical(self, 'Notice', 'The com is not available or the driver is not installed')
+
     # 用于把透镜的屈光度设到某一值
     def setdiopter(self):
-        if self.ui.lb_show_com.text()=='Connected':
-            input_diopter=float(self.ui.diopter_input_edit.text())
-            min_diop, max_diop = self.lens.to_focal_power_mode()
-            # 检查输入是否正确
-            if input_diopter < max_diop and input_diopter > min_diop:
-                self.lens.set_diopter(input_diopter)
-                self.ui.lb_diop_show.setText(str(self.lens.get_diopter()))
+        if self.lens.comNum == 1:
+            input_text=self.ui.diopter_input_edit.text()
+
+            if is_number(input_text):
+                input_diopter=float(self.ui.diopter_input_edit.text())
+                min_diop, max_diop = self.lens.to_focal_power_mode()
+                # 检查输入是否正确
+                if input_diopter < max_diop and input_diopter > min_diop:
+                    self.lens.set_diopter(input_diopter)
+                    self.ui.lb_diop_show.setText(str(self.lens.get_diopter()))
+                else:
+                    QMessageBox.information(self, 'Notice',u'Please enter the correct diopter!Diopter value should be between {} and {}'.format(min_diop,max_diop))
+
             else:
-                QMessageBox.information(self, 'Notice',u'Please enter the correct diopter!Diopter value should be between {} and {}'.format(min_diop,max_diop))
+                QMessageBox.information(self, 'Notice',
+                                        u'Diopter should be number!')
         else:
             QMessageBox.information(self, 'Notice',
                                     u'You have not connected a lens')
     # 用于重置透镜屈光度
     def reset_diopter(self):
-        if self.ui.lb_show_com.text() == 'Connected':
+        if self.lens.comNum == 1:
             self.lens.set_diopter(0)
             self.ui.lb_diop_show.setText('0')
         else:
@@ -514,100 +641,105 @@ class MyWindow(QWidget):
     # 用于屈光度变化循环
     def begin_cycle(self):
         #检查是否连接到了透镜
-        if self.ui.lb_show_com.text() == 'Connected':
-            min_diop, max_diop = self.lens.to_focal_power_mode()
-            max_cycle = self.ui.max_diopter_input.text()
-            min_cycle = self.ui.min_diopter_input.text()
-            step = self.ui.step_diopter_input.text()
-            cycle = self.ui.cycle_diopter_input.text()
-
-            max_cycle = float(max_cycle)
-            min_cycle = float(min_cycle)
-            step = float(step)
-            #如果没有输入cycle，默认10s单程，防止崩溃
-            if cycle=='':
-                cycle=10
-            else:
-                cycle = float(cycle) #s
-
-            #判断输入是否正确
-            if max_cycle < max_diop and min_cycle > min_diop:
-                #flag表示需要进行循环
-                self.cycle_flag = True
-                self.ui.lb_show_zoom.setText('Zooming')
-                # 判断是否同时需要保存图像
-                save_check = self.ui.btn_save_pic_zoom.isChecked()  # bool
-                # 计算需要跳的次数
-                times = (max_cycle - min_cycle) / step
-                # 计算每次调节需要间隔的时间
-                every_time = (cycle * 1000) / times  # 计算出来的时间单位ms
-                if save_check == True:
-                    self.get_save_path()  # 创建文件夹并且设置保存路径到类对象中
-
-                    #定时器拍照用，每隔every_time拍一次
-                    self.img_save_timer.start(every_time)
-
-                    # 计数器清0
-                    global flag_save_number
-                    flag_save_number = 1
-
-                #如果需要来回拍而不是从头拍到尾
-                if not self.ui.btn_save_pic_zoom_2.isChecked():
-                    #从最大开始拍到最小
-                    real_diop = max_cycle
-
-                    for i in range(int(times)):
-                        if self.cycle_flag==False:
-                            # 停止保存图像
-                            self.img_save_timer.stop()
-                            break
-                        self.lens.set_diopter(real_diop)
-                        real_diop-=step
-                        time.sleep(every_time/1000)#time.sleep(s)
-                        # 获取当前屈光度并显示
-                        now_diop=self.lens.get_diopter()#获取屈光度
-                        self.ui.lb_diop_show_2.setText(str(now_diop))
-                        #防卡
-                        QApplication.processEvents()
-                    #停止保存图像
-                    self.img_save_timer.stop()
-                #从头拍到尾
+        if self.lens.comNum == 1:
+            try:
+                min_diop, max_diop = self.lens.to_focal_power_mode()
+                max_cycle = self.ui.max_diopter_input.text()
+                min_cycle = self.ui.min_diopter_input.text()
+                step = self.ui.step_diopter_input.text()
+                cycle = self.ui.cycle_diopter_input.text()
+                max_cycle = float(max_cycle)
+                min_cycle = float(min_cycle)
+                step = float(step)
+                #如果没有输入cycle，默认10s单程，防止崩溃
+                if cycle=='':
+                    cycle=10
                 else:
-                    # 先从最大开始拍到最小
-                    real_diop = max_cycle
-                    for i in range(int(times)):
-                        if self.cycle_flag==False:
-                            # 停止保存图像
-                            self.img_save_timer.stop()
-                            break
-                        self.lens.set_diopter(real_diop)
-                        real_diop-=step
-                        time.sleep(every_time/1000)#time.sleep(s)
-                        # 获取当前屈光度并显示
-                        now_diop=self.lens.get_diopter()#获取屈光度
-                        self.ui.lb_diop_show_2.setText(str(now_diop))
-                        QApplication.processEvents()
+                    cycle = float(cycle) #s
 
-                    # 再从最小开始拍到最大,这里不重复拍所以先加上step
-                    real_diop = min_cycle+step
-                    for i in range(int(times)):
-                        if self.cycle_flag==False:
-                            # 停止保存图像
-                            self.img_save_timer.stop()
-                            break
-                        self.lens.set_diopter(real_diop)
-                        real_diop+=step
-                        time.sleep(every_time/1000)#time.sleep(s)
-                        # 获取当前屈光度并显示
-                        now_diop=self.lens.get_diopter()#获取屈光度
-                        self.ui.lb_diop_show_2.setText(str(now_diop))
-                        QApplication.processEvents()
-                    # 停止保存图像
-                    self.img_save_timer.stop()
-                self.ui.lb_show_zoom.setText('Finish zooming')
+                #判断输入是否正确
+                if max_cycle < max_diop and min_cycle > min_diop:
+                    #flag表示需要进行循环
+                    self.cycle_flag = True
+                    self.ui.lb_show_zoom.setText('Zooming')
+                    # 判断是否同时需要保存图像
+                    save_check = self.ui.btn_save_pic_zoom.isChecked()  # bool
+                    # 计算需要跳的次数
+                    times = (max_cycle - min_cycle) / step
+                    # 计算每次调节需要间隔的时间
+                    every_time = (cycle * 1000) / times  # 计算出来的时间单位ms
+                    if save_check == True:
+                        self.get_save_path()  # 创建文件夹并且设置保存路径到类对象中
 
-            else:
-                QMessageBox.information(self, 'Notice',u'Please enter the correct diopter!Diopter value should be between {} and {}'.format(min_diop,max_diop))
+                        #定时器拍照用，每隔every_time拍一次
+                        self.img_save_timer.start(every_time)
+
+                        # 计数器清0
+                        global flag_save_number
+                        flag_save_number = 1
+
+                    #如果需要来回拍而不是从头拍到尾
+                    if not self.ui.btn_save_pic_zoom_2.isChecked():
+                        #从最大开始拍到最小
+                        real_diop = max_cycle
+
+                        for i in range(int(times)):
+                            if self.cycle_flag==False:
+                                # 停止保存图像
+                                self.img_save_timer.stop()
+                                break
+                            self.lens.set_diopter(real_diop)
+                            real_diop-=step
+                            time.sleep(every_time/1000)#time.sleep(s)
+                            # 获取当前屈光度并显示
+                            now_diop=self.lens.get_diopter()#获取屈光度
+                            self.ui.lb_diop_show_2.setText(str(now_diop))
+                            #防卡
+                            QApplication.processEvents()
+                        #停止保存图像
+                        self.img_save_timer.stop()
+                    #从头拍到尾
+                    else:
+                        # 先从最大开始拍到最小
+                        real_diop = max_cycle
+                        for i in range(int(times)):
+                            if self.cycle_flag==False:
+                                # 停止保存图像
+                                self.img_save_timer.stop()
+                                break
+                            self.lens.set_diopter(real_diop)
+                            real_diop-=step
+                            time.sleep(every_time/1000)#time.sleep(s)
+                            # 获取当前屈光度并显示
+                            now_diop=self.lens.get_diopter()#获取屈光度
+                            self.ui.lb_diop_show_2.setText(str(now_diop))
+                            QApplication.processEvents()
+
+                        # 再从最小开始拍到最大,这里不重复拍所以先加上step
+                        real_diop = min_cycle+step
+                        for i in range(int(times)):
+                            if self.cycle_flag==False:
+                                # 停止保存图像
+                                self.img_save_timer.stop()
+                                break
+                            self.lens.set_diopter(real_diop)
+                            real_diop+=step
+                            time.sleep(every_time/1000)#time.sleep(s)
+                            # 获取当前屈光度并显示
+                            now_diop=self.lens.get_diopter()#获取屈光度
+                            self.ui.lb_diop_show_2.setText(str(now_diop))
+                            QApplication.processEvents()
+                        # 停止保存图像
+                        self.img_save_timer.stop()
+                    self.ui.lb_show_zoom.setText('Finish zooming')
+                else:
+                    QMessageBox.information(self, 'Notice',
+                                            u'Please enter the correct diopter!Diopter value should be between {} and {}'.format(
+                                                min_diop, max_diop))
+            except:
+                QMessageBox.information(self, 'Notice',
+                                        u'You have not enter correct diopter and step!')
+
         else:
             QMessageBox.information(self, 'Notice',
                                     u'You have not connected a lens')
@@ -616,95 +748,6 @@ class MyWindow(QWidget):
     def stop_cycle(self):
         self.cycle_flag=False
 
-    #用于设置融合图像栈路径
-    def set_fusion_path(self):
-        path = QFileDialog.getExistingDirectory(self, "Choose image stack path")
-        flag_have_pic = False
-        if os.path.isdir(path):  # 检查path是否为一个存在的文件夹
-            #检查是否包含图片
-            image_formats = support_format  # 定义常见的图片格式
-            files = os.listdir(path)  # 获取文件夹中的所有文件名
-            for file in files:  # 遍历每个文件名
-                for format in image_formats:  # 遍历每种图片格式
-                    if file.endswith(format):  # 如果文件名以图片格式结尾
-                        flag_have_pic=True
-                        break  # 跳出内层循环，继续下一个文件名
-            if flag_have_pic==False:
-                QMessageBox.information(self, 'Notice',
-                                        u'No pictures in this folder')
-            else:
-                self.fusion_dir_path = path
-                self.ui.fusion_path_edit.setText(path)
-        else:
-            QMessageBox.information(self, 'Notice',
-                                    u'Not a directory')
-
-    #用于设置融合图像输出的文件夹
-    def set_fusion_output_path(self):
-        path = QFileDialog.getExistingDirectory(self, "Choose output path")
-        self.fusion_output_path=path
-        self.ui.out_put_path_edit.setText(path)
-
-    #用于设置模型文件路径
-    def set_model_path(self):
-        path = QFileDialog.getOpenFileName(self, "Select model")
-        if os.path.isdir(path[0]):
-            QMessageBox.information(self, 'Notice',
-                                    u'Please do not select the folder, select the model file')
-        else:
-            self.model_path = path[0]
-            print(self.model_path)
-            self.ui.model_path_edit.setText(path[0])
-
-    #用于edit更新输入图像栈路径
-    def update_source_path(self):
-        path_fusion_dir_path=self.ui.fusion_path_edit.text()
-        #检查输入图像栈文件夹是否正确且包含的全是图片
-        flag_have_pic = False
-        if os.path.isdir(path_fusion_dir_path):  # 检查path是否为一个存在的文件夹
-            # 检查是否包含图片
-            image_formats = support_format  # 定义常见的图片格式
-            files = os.listdir(path_fusion_dir_path)  # 获取文件夹中的所有文件名
-            for file in files:  # 遍历每个文件名
-                for format in image_formats:  # 遍历每种图片格式
-                    if file.endswith(format):  # 如果文件名以图片格式结尾
-                        flag_have_pic = True
-                        break  # 跳出内层循环，继续下一个文件名
-            if flag_have_pic == False:
-                QMessageBox.information(self, 'Notice',
-                                        u'No pictures in this folder')
-            else:
-                self.fusion_dir_path = path_fusion_dir_path
-
-        else:
-            QMessageBox.information(self, 'Notice',
-                                    u'Not a directory')
-        QMessageBox.information(self, 'Notice',
-                                u'Please make sure that the images in the folder are renamed in ordery')
-
-    #用于edit更新输入图像栈路径
-    def update_target_path(self):
-        # 检查输出路径是否是一个文件夹
-        path_out_dir_path = self.ui.out_put_path_edit.text()
-        if os.path.isdir(path_out_dir_path):  # 检查path是否为一个存在的文件夹
-            if has_chinese_char(path_out_dir_path):
-                QMessageBox.information(self, 'Notice',
-                                        u'Output path does not support Chinese characters')
-            else:
-                self.fusion_output_path=path_out_dir_path
-        else:
-            QMessageBox.information(self, 'Notice',
-                                    u'Not a directory')
-
-    #用于edit更新模型栈路径
-    def update_model_path(self):
-        #检查模型路径是否正确
-        model_path=self.ui.model_path_edit.text()
-        if judge_format(model_path):
-            self.model_path = model_path
-        else:
-            QMessageBox.information(self, 'Notice',
-                                    u'Not a correct model!')
 
     #用于计算cycle图像数量：
     def updade_count_number(self):
@@ -720,81 +763,7 @@ class MyWindow(QWidget):
                 QMessageBox.information(self, 'Notice',
                                             u'Please check if you have entered the correct diopter and step!')
 
-    #用于融合图像栈
-    def start_fusion(self):
-        #定义确认参数
-        CONFIRM=True
 
-        # 进度条置0！表示重新开始融合
-        self.ui.fusion_progress.setValue(0)
-
-        #判断必须要的参数是否设置完全
-        if not os.path.isdir(self.fusion_dir_path):
-            QMessageBox.information(self, 'Notice',
-                                    u'Please make sure the path of the image stack folder to be fused is correct')
-            CONFIRM=False
-        if not os.path.isdir(self.fusion_output_path):
-            CONFIRM=False
-            QMessageBox.information(self, 'Notice',
-                                    u'Please make sure that the output path of the fused image is correct')
-        if not (self.model_path.endswith(".ckpt") or self.model_path.endswith(".pth")or self.model_path.endswith(".pt")):
-            CONFIRM=False
-            QMessageBox.information(self, 'Notice',
-                                    u'Please check if the model file is correct')
-        #如果必须要的参数都输入了，继续执行
-        if CONFIRM==True:
-            #确认参数
-            img_stack_path=self.fusion_dir_path
-            output_path=self.fusion_output_path
-            model_path=self.model_path
-
-            #确认输出图像的宽高，如果没有手动输入输出图像的宽高，自动获取，如果手动输入输出图片的宽高，使用手动输入的值
-            if self.ui.output_width.text()=='':
-                width=get_pic_size_in_dir(img_stack_path)[0]
-                height=get_pic_size_in_dir(img_stack_path)[1]
-            else:
-                width=int(self.ui.output_width.text())
-                height=int(self.ui.output_height.text())
-
-            #确认k_size，如果有手动设置的k_size,使用手动设置的k_size，没有则使用自动的1/20 min(width,height)
-            if self.ui.edit_kernel.text()!='':
-                k_size=int(self.ui.edit_kernel.text())
-            else:
-                k_size=min(height,width)//20 if (min(height,width)//20)%2!=0 else (min(height,width)//20)+1
-
-            #确认是否使用后处理
-            use_post_process=self.ui.btn_post_process.isChecked()
-            if use_post_process==True:
-                #确认是否使用模糊优化
-                use_fuzzy=self.ui.btn_fuzzy.isChecked()
-            else:
-                use_fuzzy=False
-
-            #确认输入图片的类型,这是是'.xxx'
-            source_format=get_first_image_format(img_stack_path)
-
-            #确认输出图片的类型,这是是'xxx'
-            target_format=self.ui.comboBox_output_format.currentText()
-
-            #确认是否去噪
-            remove_noise=self.ui.btn_remove_noise.isChecked()
-
-            # 进度条置为10,表示数据检查完成开始融合！
-            self.ui.fusion_progress.setValue(10)
-
-            #在子进程里面开始融合，融合成功会返回路径地址
-            self.fusion_thread = FusionThread(img_stack_path=img_stack_path,output_path=output_path,
-                                model_path=model_path,k_size=k_size,use_post_process=use_post_process,
-                                use_fuzzy=use_fuzzy,width=width,height=height,source_format=source_format,
-                                target_format=target_format,remove_noise=remove_noise)
-            save_path=self.fusion_thread.path
-            #进度条显示100%
-            self.ui.fusion_progress.setValue(100)
-        else:
-            QMessageBox.information(self, 'Notice',
-                                    u'Please check if the input and output are correct')
-        QMessageBox.information(self, 'Notice',
-                                u'Fusion done,img is save in {}'.format(save_path))
 
     # 用于安全退出，释放摄像头
     def closeEvent(self, event):
@@ -809,6 +778,229 @@ class MyWindow(QWidget):
 
         event.accept()
 
+    # 用于自动调焦
+    def auto_focus(self):
+        #检查透镜和相机连接是否已经连接
+        try:
+            #获取最大和最小屈光度
+            min_diop, max_diop = self.lens.to_focal_power_mode()
+            min_diop=float(min_diop)
+            max_diop=float(max_diop)
+            tol=0.1
+
+            # 定义一个函数fun(x)，这里假设它是单峰的
+            def fun(diop):
+                if self.lens.comNum == 1:
+                    #设置屈光度
+                    self.lens.set_diopter(diop)
+                    #获取当前屈光度
+                    current_diop=self.lens.get_diopter()
+                    #设置的值和获取的值误差小于tol,说明设置成功，再计算清晰度
+                    if abs(current_diop-diop)<=0.01:
+
+                        #非ROI
+                        global roi_flag
+                        if roi_flag==False:
+                            out = cal_clarity(self.update_image(), measure=self.ui.comboBox_focus_measure.currentText(),
+                                              roi_point=None, label_height=None, roi_height=None,roi_width=None)
+                        #局部自动对焦
+                        else:
+                            # 用于计算实际像素画面与label的比例
+                            self.label_height = self.ui.video_label.height()
+                            out = cal_clarity(self.update_image(), measure=self.ui.comboBox_focus_measure.currentText(),
+                                            roi_point=self.roi_point,label_height=self.label_height,roi_height=self.roi_height,roi_width=self.roi_width)
+                    #设置没有成功,加大时间延迟给透镜
+                    else:
+                        print('Diopter setting failure')
+                        self.lens.set_diopter(diop)
+                        time.sleep(0.1)
+
+                else:
+                    QMessageBox.information(self, 'Notice',
+                                            u'You have not connected a lens')
+                return out
+            # 定义一个三分法的函数，输入是区间[a,b]和精度eps
+            def ternary_search(a, b, eps):
+                # 当区间长度小于eps时，停止循环
+                while b - a > eps:
+                    # 计算两个分割点
+                    m1 = a + (b - a) / 3
+                    m2 = b - (b - a) / 3
+                    # 比较函数值，判断最大值在哪个区间内
+                    if fun(m1) < fun(m2):
+                        # 最大值在[m1, b]内，舍弃[a, m1]区间
+                        a = m1
+                    else:
+                        # 最大值在[a, m2]内，舍弃[m2, b]区间
+                        b = m2
+                # 返回区间中点作为最大值的近似解
+                return (a + b) / 2
+
+            def hill_climb(min, max, step=0.1, max_iter=1000):
+                x = np.random.uniform(min, max)
+                for i in range(max_iter):
+                    curr_val = fun(x)
+                    next_x = x + np.random.uniform(-step, step)
+                    next_val = fun(next_x)
+                    if next_val > curr_val:
+                        x, curr_val = next_x, next_val
+                return x
+            def curvefitting(min,max):
+                # x和y数据
+                step=0.1
+                x = np.arange(min,max,step)
+                #随机生成y，用于更新
+                y = np.arange(min, max, step)
+                #计算y
+                for val in range(x.shape[0]):
+                    y[val]=fun(val)
+                # 需要拟合的二次函数
+                def func(x, a, b, c):
+                    return a*x*x+b*x+c
+                popt, pcov = curve_fit(func, x, y)
+                a,b,c=popt
+                #求y最大值时候的x
+                x=max_y(a,b,c,min_diop,max_diop)
+                return x
+
+            self.ui.lb_show_focus_inf.setText('Focusing')
+            if self.ui.comboBox_focus_method.currentText() =='Trichotomy':
+                best_diop = ternary_search(min_diop, max_diop, tol)
+            elif self.ui.comboBox_focus_method.currentText()=='Climbing':
+                best_diop = hill_climb(min_diop,max_diop,step=0.1,max_iter=1000)
+            elif self.ui.comboBox_focus_method.currentText()=='Curve fitting':
+                best_diop=curvefitting(min_diop,max_diop)
+            self.lens.set_diopter(best_diop)
+            self.ui.lb_show_focus_inf.setText('Finish')
+            self.ui.lb_diop_show.setText(str(round(best_diop,2)))
+
+        except:
+            QMessageBox.information(self, 'Notice',
+                                    u'Please connect the camera, lens!')
+        finally:
+            roi_flag == False
+    #开始录像
+    def start_recording(self):
+        if self.cam_list.GetSize()!=0:
+
+            try:
+                self.video_save_path = QFileDialog.getExistingDirectory(self, "choose save path")
+                self.recorder = PySpin.SpinVideo()
+                if self.ui.comboBox_output_format_3.currentText()=='AVI':
+                    self.option = PySpin.AVIOption()
+                    self.option.frameRate =self.real_fps
+
+                elif self.ui.comboBox_output_format_3.currentText()=='MPEG':
+                    self.option = PySpin.MJPGOption()
+                    self.option.frameRate = self.real_fps
+                    text, ok = QInputDialog.getInt(self, "Image quality", "Percentage (0-100):")
+                    if ok:
+                        self.option.quality = int(text)
+                self.recorder.Open(self.video_save_path + '/' + time.strftime('%Y-%m-%d_%H_%M_%S',
+                                                                                  time.localtime(
+                                                                                      time.time())),self.option)
+                self.record_flag=True
+                self.ui.btn_stop_save_2.setEnabled(True)
+
+                self.ui.label_show_save_inf.setText('Working')
+            except:
+                QMessageBox.information(self, 'Notice',
+                                        u'Something wrong!')
+
+        else:
+            QMessageBox.information(self, 'Notice',
+                                    u'Please connect the camera!')
+
+
+    # 结束录像
+    def stop_recording(self):
+        if self.record_flag == True:
+            try:
+                for i in range(len(self.frameslist)):
+                    self.recorder.Append(self.frameslist[i])
+                self.recorder.Close()
+
+                del self.frameslist
+                self.record_flag = False
+
+                QMessageBox.information(self, 'Notice',
+                                        u'Recording completed, video stored at {}'.format(self.video_save_path))
+                self.ui.btn_stop_save_2.setEnabled(False)
+                self.ui.label_show_save_inf.setText('Not Working')
+            except:
+                QMessageBox.information(self, 'Notice',
+                                        u'Failed to save video!')
+
+        else:
+            QMessageBox.information(self, 'Notice',
+                                    u'You have not started recording yet!')
+
+    # 局部对焦
+    def roi_focus(self, event):
+        # 获取点击位置
+        global roi_flag
+        x = event.x()
+        y = event.y()
+        roi = (x, y)
+        try:
+
+            roi_flag = True
+            self.roi_point = roi
+            self.auto_focus()
+        except:
+            QMessageBox.information(self, 'Notice',
+                                    u'Focusing failure')
+
+    #设置roi_radius
+    def set_focus(self):
+        max_num = round(min(self.ui.video_label.width(),self.ui.video_label.height())/2)
+        text, ok = QInputDialog.getInt(self, "Set ROI Radius", "Radius(0-{})  default=50".format(str(max_num)))
+        if ok:
+            self.roi_height = int(text)
+            self.roi_width = int(text)
+        else:
+            QMessageBox.information(self, "notice", 'Please check if you have entered the correct Radius, default roi radius=50')
+
+    def boxout_mousePressEvent(self, event):
+        if event.button() == Qt.LeftButton:
+            self.start_pos = event.pos()
+            self.move_flag = False
+
+    def boxout_mouseMoveEvent(self, event):
+        if not self.start_pos:
+            return
+        self.move_flag=True
+        self.end_pos = event.pos()
+        self.update()
+
+    def boxout_mouseReleaseEvent(self, event):
+        if event.button() == Qt.LeftButton:
+            self.end_pos = event.pos()
+            self.update()
+
+            if self.move_flag==True:
+                self.boxout_focus()
+            else:
+                pass
+
+    def boxout_focus(self):
+        print(self.start_pos, self.end_pos)
+        x1 = self.start_pos.x()
+        y1 = self.start_pos.y()
+        x2 = self.end_pos.x()
+        y2 = self.end_pos.y()
+        self.roi_point = (round(x1 + x2) / 2, round(y1 + y2) / 2)
+        self.roi_height = abs(round(y2 - y1))
+        self.roi_width = abs(round(x2 - x1))
+        global roi_flag
+        roi_flag = True
+        self.auto_focus()
+        self.start_pos = None
+        self.end_pos = None
+        self.drawRectFlag = False
+        self.draw_rect = QRect()
+        self.update()
+
 #子线程用来保存图片，不影响主线程显示
 class Save_img(QThread):
     def __init__(self,data,path,save_format):
@@ -822,48 +1014,5 @@ class Save_img(QThread):
         cv2.imwrite(os.path.join(self.path,str(flag_save_number)+ self.save_format), self.data)
         print('{}{} has been saved in {}'.format(flag_save_number,self.save_format,self.path + '/'+str(flag_save_number)+'%s'%self.save_format))
         flag_save_number += 1#增量式创建，图片按先后排序
-
-#子对话框用于询问手动设置的k_size
-class Ask_k_size_Dialog(QDialog):
-    def __init__(self):
-        super().__init__()
-        self.setWindowTitle("Set kernel")
-        self.setWindowFlags(Qt.WindowSystemMenuHint | Qt.WindowTitleHint)  # 设置对话框的窗口标志
-        self.edit = QLineEdit() # 创建编辑框
-        self.button = QPushButton("OK") # 创建按钮
-        self.button.clicked.connect(self.accept) # 连接按钮的点击信号和对话框的接受槽函数
-        layout = QVBoxLayout() # 创建垂直布局
-        layout.addWidget(self.edit) # 添加编辑框到布局中
-        layout.addWidget(self.button) # 添加按钮到布局中
-        self.setLayout(layout) # 设置对话框的布局
-
-#子线程用于防止主界面卡,但是貌似在cpu环境下貌似还是会卡
-class FusionThread(QThread):
-    def __init__(self,img_stack_path,output_path,
-                                model_path,k_size,use_post_process,
-                                use_fuzzy,width,height,source_format,
-                                target_format,remove_noise):
-        super().__init__()
-        self.img_stack_path=img_stack_path
-        self.output_path=output_path
-        self.model_path=model_path
-        self.k_size=k_size
-        self.use_post_process=use_post_process
-        self.use_fuzzy=use_fuzzy
-        self.width=width
-        self.height=height
-        self.source_format=source_format
-        self.target_format=target_format
-        self.remove_noise=remove_noise
-        self.path=self.fusion()
-    def fusion(self):
-        path=fusion.stack_fusion(img_stack_path=self.img_stack_path, output_path=self.output_path,
-                     model_path=self.model_path, k_size=self.k_size, use_post_process=self.use_post_process,
-                     use_fuzzy=self.use_fuzzy, width=self.width, height=self.height, source_format=self.source_format,
-                     target_format=self.target_format, remove_noise=self.remove_noise)
-        return path.name_path
-
-
-
 
 
