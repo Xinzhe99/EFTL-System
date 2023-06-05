@@ -1,4 +1,4 @@
-# Dataset capture & image stack fusion
+# EFTL for dataset capture
 **Hareware : Flir industrial camera, optotune controllable lens.**
 # Requirements
 Windows\
